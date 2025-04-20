@@ -26,8 +26,8 @@ input int    TDI_RSI_Price_Type = MODE_SMA;       // RSI Price Line MA type
 input int    TDI_Trade_Signal_Line = 7;           // Trade Signal Line MA period
 input int    TDI_Trade_Signal_Type = MODE_SMA;    // Trade Signal Line MA type
 input int    TDI_UpperTimeframe = 0;              // Upper timeframe (0 = current)
-input string Telegram_Bot_Token = "";             // Telegram Bot Token (FR6.5)
-input string Telegram_Chat_ID = "";               // Telegram Chat ID (FR6.6)
+input string Telegram_Bot_Token = "7615545187:AAFL__WLJVNd9E5EcXLXOHv2OYCURo7I8Fw";             // Telegram Bot Token (FR6.5)
+input string Telegram_Chat_ID = "6636214769";               // Telegram Chat ID (FR6.6)
 input int    MagicNumber = 20250420;              // Unique EA identifier (FR6.7)
 input double Risk_Percent = 5.0;                  // Risk percent per trade (e.g., 1.0 = 1%)
 
@@ -40,6 +40,9 @@ int handleTDI = INVALID_HANDLE;
 double lastHighestAccountBalance = 0.0;
 double lastCalculatedLotSize = 0.0;
 datetime lastBarTime = 0;
+
+//--- Trade object
+CTrade trade;
 
 // --- Lot size calculation function (FR8) ---
 double CalculateLotSize()
@@ -99,17 +102,7 @@ int OnInit()
     handleEMA50 = iMA(_Symbol, _Period, EMA_Fast_Period, 0, MODE_EMA, PRICE_CLOSE);
     handleEMA200 = iMA(_Symbol, _Period, EMA_Slow_Period, 0, MODE_EMA, PRICE_CLOSE);
     // Initialize TDI handle (pass TDI params as needed)
-    handleTDI = iCustom(_Symbol, _Period, TDI_Custom_Indicator_Name,
-        TDI_RSI_Period,
-        TDI_RSI_Price,
-        TDI_Volatility_Band_Period,
-        TDI_StdDev,
-        TDI_RSI_Price_Line,
-        TDI_RSI_Price_Type,
-        TDI_Trade_Signal_Line,
-        TDI_Trade_Signal_Type,
-        TDI_UpperTimeframe
-    );
+    handleTDI = iCustom(_Symbol, _Period, TDI_Custom_Indicator_Name);
     if(handleEMA50 == INVALID_HANDLE || handleEMA200 == INVALID_HANDLE || handleTDI == INVALID_HANDLE)
     {
         Print("[ERROR] Indicator handle initialization failed.");
@@ -142,6 +135,17 @@ void OnTick()
         return; // Not a new bar
     lastBarTime = currentBarTime;
 
+    // --- Update lot size if new highest balance ---
+    double currentBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+    if(currentBalance > lastHighestAccountBalance)
+    {
+        lastHighestAccountBalance = currentBalance;
+        lastCalculatedLotSize = CalculateLotSize();
+    }
+    // If first run, initialize lot size
+    if(lastCalculatedLotSize == 0.0)
+        lastCalculatedLotSize = CalculateLotSize();
+
     // --- Read indicator values for previous closed bar (index 1) ---
     double ema50[2], ema200[2];
     if(CopyBuffer(handleEMA50, 0, 1, 2, ema50) <= 0 || CopyBuffer(handleEMA200, 0, 1, 2, ema200) <= 0)
@@ -163,7 +167,6 @@ void OnTick()
 
     // --- Signal logic implementation (FR2, FR3) ---
     bool buySignal = false, sellSignal = false;
-    double lotSize = 0.0;
 
     // Buy Signal Logic (FR2)
     if(ema50[1] > ema200[1] &&
@@ -171,10 +174,14 @@ void OnTick()
       tdiRSI[1] > tdiLower[1] && tdiRSI[2] <= tdiLower[2])
     {
         buySignal = true;
-        lotSize = CalculateLotSize();
         Print("[SIGNAL] BUY detected: ", _Symbol, " ", EnumToString(_Period), " Time=", TimeToString(iTime(_Symbol, _Period, 1)),
-              " LotSize=", DoubleToString(lotSize, 2));
-        SendTelegramMessage("BUY signal detected for " + _Symbol + " Lot: " + DoubleToString(lotSize, 2));
+              " LotSize=", DoubleToString(lastCalculatedLotSize, 2));
+        SendTelegramMessage("BUY signal detected for " + _Symbol + " Lot: " + DoubleToString(lastCalculatedLotSize, 2));
+        // --- Execute Buy Order ---
+        if(trade.Buy(lastCalculatedLotSize, _Symbol))
+            Print("[ORDER] Buy order placed successfully.");
+        else
+            Print("[ORDER] Buy order failed: ", trade.ResultRetcodeDescription());
     }
 
     // Sell Signal Logic (FR3)
@@ -183,10 +190,14 @@ void OnTick()
       tdiRSI[1] < tdiUpper[1] && tdiRSI[2] >= tdiUpper[2])
     {
         sellSignal = true;
-        lotSize = CalculateLotSize();
         Print("[SIGNAL] SELL detected: ", _Symbol, " ", EnumToString(_Period), " Time=", TimeToString(iTime(_Symbol, _Period, 1)),
-              " LotSize=", DoubleToString(lotSize, 2));
-        SendTelegramMessage("SELL signal detected for " + _Symbol + " Lot: " + DoubleToString(lotSize, 2));
+              " LotSize=", DoubleToString(lastCalculatedLotSize, 2));
+        SendTelegramMessage("SELL signal detected for " + _Symbol + " Lot: " + DoubleToString(lastCalculatedLotSize, 2));
+        // --- Execute Sell Order ---
+        if(trade.Sell(lastCalculatedLotSize, _Symbol))
+            Print("[ORDER] Sell order placed successfully.");
+        else
+            Print("[ORDER] Sell order failed: ", trade.ResultRetcodeDescription());
     }
   }
 //+------------------------------------------------------------------+
