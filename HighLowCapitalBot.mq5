@@ -3,7 +3,7 @@
 //| Version: 1.0 | Date: 2025-04-20                                  |
 //| Author: [Your Name/Org]                                          |
 //+------------------------------------------------------------------+
-#include <Trade\Trade.mqh>
+#include <Trade/Trade.mqh>
 #include <MovingAverages.mqh>
 #property copyright   "[Your Name/Org]"
 #property version     "1.0"
@@ -29,6 +29,7 @@ input int    TDI_UpperTimeframe = 0;              // Upper timeframe (0 = curren
 input string Telegram_Bot_Token = "";             // Telegram Bot Token (FR6.5)
 input string Telegram_Chat_ID = "";               // Telegram Chat ID (FR6.6)
 input int    MagicNumber = 20250420;              // Unique EA identifier (FR6.7)
+input double Risk_Percent = 5.0;                  // Risk percent per trade (e.g., 1.0 = 1%)
 
 //--- Indicator handles
 int handleEMA50 = INVALID_HANDLE;
@@ -39,6 +40,54 @@ int handleTDI = INVALID_HANDLE;
 double lastHighestAccountBalance = 0.0;
 double lastCalculatedLotSize = 0.0;
 datetime lastBarTime = 0;
+
+// --- Lot size calculation function (FR8) ---
+double CalculateLotSize()
+{
+    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+    double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+    double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+    double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+    double wPercent = Risk_Percent / 100.0; // Convert input percent to fraction
+    double lotSize = balance * wPercent / 100.0; // Example: $100 per 0.01 lot (adjust as needed)
+    lotSize = MathMax(minLot, MathMin(maxLot, MathFloor(lotSize / lotStep) * lotStep));
+    return lotSize;
+}
+
+// --- Telegram message sending function ---
+void SendTelegramMessage(const string message)
+{
+    if(StringLen(Telegram_Bot_Token) == 0 || StringLen(Telegram_Chat_ID) == 0)
+    {
+        Print("[TELEGRAM] Bot token or chat ID not set.");
+        return;
+    }
+    string url = "https://api.telegram.org/bot" + Telegram_Bot_Token + "/sendMessage?chat_id=" + Telegram_Chat_ID + "&text=" + UrlEncode(message);
+    uchar post[];
+    uchar result[];
+    string headers = "";
+    string result_headers = "";
+    int timeout = 5000;
+    int res = WebRequest("GET", url, headers, timeout, post, result, result_headers);
+    if(res != 200)
+        Print("[TELEGRAM] Failed to send message. HTTP code: ", res);
+}
+
+string UrlEncode(const string str)
+{
+    string encoded = "";
+    for(int i = 0; i < StringLen(str); i++)
+    {
+        ushort c = StringGetCharacter(str, i);
+        if((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+            encoded += StringFormat("%c", c);
+        else if(c == ' ')
+            encoded += "+";
+        else
+            encoded += "%" + StringFormat("%02X", c);
+    }
+    return encoded;
+}
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -114,6 +163,7 @@ void OnTick()
 
     // --- Signal logic implementation (FR2, FR3) ---
     bool buySignal = false, sellSignal = false;
+    double lotSize = 0.0;
 
     // Buy Signal Logic (FR2)
     if(ema50[1] > ema200[1] &&
@@ -121,11 +171,10 @@ void OnTick()
       tdiRSI[1] > tdiLower[1] && tdiRSI[2] <= tdiLower[2])
     {
         buySignal = true;
+        lotSize = CalculateLotSize();
         Print("[SIGNAL] BUY detected: ", _Symbol, " ", EnumToString(_Period), " Time=", TimeToString(iTime(_Symbol, _Period, 1)),
-              " EMA50=", DoubleToString(ema50[1], 5), " EMA200=", DoubleToString(ema200[1], 5),
-              " Close=", DoubleToString(closePrev, 5),
-              " TDI_RSI=", DoubleToString(tdiRSI[1], 5), " TDI_Lower=", DoubleToString(tdiLower[1], 5));
-        // Telegram notification and lot size logic to be added
+              " LotSize=", DoubleToString(lotSize, 2));
+        SendTelegramMessage("BUY signal detected for " + _Symbol + " Lot: " + DoubleToString(lotSize, 2));
     }
 
     // Sell Signal Logic (FR3)
@@ -134,11 +183,10 @@ void OnTick()
       tdiRSI[1] < tdiUpper[1] && tdiRSI[2] >= tdiUpper[2])
     {
         sellSignal = true;
+        lotSize = CalculateLotSize();
         Print("[SIGNAL] SELL detected: ", _Symbol, " ", EnumToString(_Period), " Time=", TimeToString(iTime(_Symbol, _Period, 1)),
-              " EMA50=", DoubleToString(ema50[1], 5), " EMA200=", DoubleToString(ema200[1], 5),
-              " Close=", DoubleToString(closePrev, 5),
-              " TDI_RSI=", DoubleToString(tdiRSI[1], 5), " TDI_Upper=", DoubleToString(tdiUpper[1], 5));
-        // Telegram notification and lot size logic to be added
+              " LotSize=", DoubleToString(lotSize, 2));
+        SendTelegramMessage("SELL signal detected for " + _Symbol + " Lot: " + DoubleToString(lotSize, 2));
     }
   }
 //+------------------------------------------------------------------+
