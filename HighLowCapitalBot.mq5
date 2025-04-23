@@ -26,8 +26,8 @@ input int    TDI_RSI_Price_Type = MODE_SMA;       // RSI Price Line MA type
 input int    TDI_Trade_Signal_Line = 7;           // Trade Signal Line MA period
 input int    TDI_Trade_Signal_Type = MODE_SMA;    // Trade Signal Line MA type
 input int    TDI_UpperTimeframe = 0;              // Upper timeframe (0 = current)
-input string Telegram_Bot_Token = "7615545187:AAFL__WLJVNd9E5EcXLXOHv2OYCURo7I8Fw";             // Telegram Bot Token (FR6.5)
-input string Telegram_Chat_ID = "6636214769";               // Telegram Chat ID (FR6.6)
+input string Telegram_Bot_Token = "";             // Telegram Bot Token (FR6.5)
+input string Telegram_Chat_ID = "";               // Telegram Chat ID (FR6.6)
 input int    MagicNumber = 20250420;              // Unique EA identifier (FR6.7)
 input double Risk_Percent = 5.0;                  // Risk percent per trade (e.g., 1.0 = 1%)
 
